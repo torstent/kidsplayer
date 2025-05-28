@@ -200,97 +200,13 @@ async function handlePlayPause() {
 }
 
 // Skip backward 30 seconds
-async function skipBackward() {
-  try {
-    if (!isPlayerReady || !currentTrack) {
-      toast.push("Player not ready or no track playing");
-      return;
-    }
-
-    const { getAccessToken } = await import("$lib/spotifyUtils/auth.js");
-    const token = await getAccessToken();
-    
-    // Get current playback state to find position
-    const response = await fetch("https://api.spotify.com/v1/me/player", {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      
-      // Calculate new position (30 seconds back, minimum 0)
-      const newPosition = Math.max(0, data.progress_ms - 30000);
-      
-      // Seek to new position
-      const seekResponse = await fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${newPosition}`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      
-      if (seekResponse.ok) {
-        toast.push("Skipped backward 30 seconds");
-      } else {
-        console.error("Seek failed:", seekResponse.status, await seekResponse.text());
-        toast.push("Failed to seek backward");
-      }
-    } else {
-      toast.push("Could not get current playback state");
-    }
-  } catch (error) {
-    console.error("Error skipping backward:", error);
-    toast.push("Error controlling playback");
-  }
+async function handleSkipBackward() {
+  await SpotifyPlayerApi.skipBackward(player);
 }
 
 // Skip forward 30 seconds
-async function skipForward() {
-  try {
-    if (!isPlayerReady || !currentTrack) {
-      toast.push("Player not ready or no track playing");
-      return;
-    }
-
-    const { getAccessToken } = await import("$lib/spotifyUtils/auth.js");
-    const token = await getAccessToken();
-    
-    // Get current playback state to find position
-    const response = await fetch("https://api.spotify.com/v1/me/player", {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      
-      // Calculate new position (30 seconds forward)
-      const newPosition = data.progress_ms + 30000;
-      
-      // Seek to new position
-      const seekResponse = await fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${newPosition}`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      
-      if (seekResponse.ok) {
-        toast.push("Skipped forward 30 seconds");
-      } else {
-        console.error("Seek failed:", seekResponse.status, await seekResponse.text());
-        toast.push("Failed to seek forward");
-      }
-    } else {
-      toast.push("Could not get current playback state");
-    }
-  } catch (error) {
-    console.error("Error skipping forward:", error);
-    toast.push("Error controlling playback");
-  }
+async function handleSkipForward() {
+  await SpotifyPlayerApi.skipForward(player);
 }
 
 // Toggle track list visibility and load album tracks if necessary
@@ -300,7 +216,7 @@ async function toggleTrackList() {
     
     // If we're showing the track list and we don't have tracks loaded yet, fetch them
     if (showTrackList && albumTracks.length === 0 && currentAlbumId) {
-      await loadAlbumTracks(currentAlbumId);
+      albumTracks = await SpotifyPlayerApi.loadAlbumTracks(currentAlbumId);
     }
   } catch (error) {
     console.error("Error toggling track list:", error);
@@ -480,171 +396,6 @@ onDestroy(() => {
     player.disconnect();
   }
 });
-
-// Toggle track list visibility and load album tracks if necessary
-async function toggleTrackList() {
-  try {
-    showTrackList = !showTrackList;
-    
-    // If we're showing the track list and we don't have tracks loaded yet, fetch them
-    if (showTrackList && albumTracks.length === 0 && currentAlbumId) {
-      await loadAlbumTracks(currentAlbumId);
-    }
-  } catch (error) {
-    console.error("Error toggling track list:", error);
-    toast.push("Error loading tracks");
-  }
-}
-
-// Load all tracks for the current album
-async function loadAlbumTracks(albumId) {
-  try {
-    const { getAccessToken } = await import("$lib/spotifyUtils/auth.js");
-    const token = await getAccessToken();
-    
-    const response = await fetch(`https://api.spotify.com/v1/albums/${albumId}/tracks`, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      albumTracks = data.items;
-      console.log('Album tracks loaded:', albumTracks);
-    } else {
-      console.error("Failed to load album tracks:", response.status, await response.text());
-      toast.push("Failed to load album tracks");
-    }
-  } catch (error) {
-    console.error("Error loading album tracks:", error);
-    toast.push("Error loading album tracks");
-  }
-}
-
-// Play a specific track
-async function playTrack(trackUri) {
-  try {
-    if (!isPlayerReady) {
-      toast.push("Player not ready. Please wait a moment and try again.");
-      return;
-    }
-
-    const { getAccessToken } = await import("$lib/spotifyUtils/auth.js");
-    const token = await getAccessToken();
-
-    // Play the selected track
-    const playResponse = await fetch("https://api.spotify.com/v1/me/player/play", {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ 
-        uris: [trackUri],
-        device_id: deviceId
-      })
-    });
-
-    if (playResponse.ok) {
-      toast.push("Playing selected track");
-    } else {
-      console.error("Play track failed:", playResponse.status, await playResponse.text());
-      toast.push("Failed to play selected track");
-    }
-  } catch (error) {
-    console.error("Error playing track:", error);
-    toast.push("Error controlling playback");
-  }
-}
-
-// Toggle play/pause or start album playback
-async function toggleAlbum(albumId) {
-  try {
-    if (!deviceId || !isPlayerReady) {
-      toast.push("Player not ready. Please wait a moment and try again.");
-      return;
-    }
-
-    // If this album is currently playing, toggle pause/play
-    if (currentAlbumId === albumId && isPlaying) {
-      await player.pause();
-      toast.push("Paused");
-      return;
-    }
-    
-    // If this album is paused, resume it
-    if (currentAlbumId === albumId && !isPlaying) {
-      await player.resume();
-      toast.push("Resumed playback");
-      return;
-    }
-
-    // Otherwise, start playing the new album
-    const { getAccessToken } = await import("$lib/spotifyUtils/auth.js");
-    const token = await getAccessToken();
-
-    // First, transfer playback to this device
-    const transferResponse = await fetch("https://api.spotify.com/v1/me/player", {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        device_ids: [deviceId],
-        play: false
-      })
-    });
-
-    if (!transferResponse.ok) {
-      console.error("Transfer failed:", transferResponse.status, await transferResponse.text());
-      toast.push("Failed to transfer playback to this device");
-      return;
-    }
-
-    // Wait a moment for the transfer to complete
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Ensure shuffle is disabled for kids albums (play in order)
-    if (shuffleState) {
-      const shuffleResponse = await fetch("https://api.spotify.com/v1/me/player/shuffle?state=false", {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      
-      if (shuffleResponse.ok) {
-        console.log("Shuffle disabled for kids album");
-        toast.push("Playing album in order (shuffle disabled)");
-      }
-    }
-
-    // Now play the album
-    const playResponse = await fetch("https://api.spotify.com/v1/me/player/play", {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ 
-        context_uri: `spotify:album:${albumId}`,
-        device_id: deviceId
-      })
-    });
-
-    if (playResponse.ok) {
-      toast.push("Starting album playback!");
-    } else {
-      console.error("Play failed:", playResponse.status, await playResponse.text());
-      toast.push("Failed to start playback. Make sure you have Spotify Premium.");
-    }
-  } catch (error) {
-    console.error("Error toggling album:", error);
-    toast.push("Error controlling playback");
-  }
-}
 
 // Lade Cover beim Mount und initialisiere Player
 onMount(async () => {
@@ -920,7 +671,7 @@ onDestroy(() => {
       
       <button
         class="control-button"
-        on:click={skipBackward}
+        on:click={handleSkipBackward}
         disabled={!isPlayerReady}
         title="Skip backward 30 seconds"
       >
@@ -942,7 +693,7 @@ onDestroy(() => {
       
       <button
         class="control-button"
-        on:click={skipForward}
+        on:click={handleSkipForward}
         disabled={!isPlayerReady}
         title="Skip forward 30 seconds"
       >
