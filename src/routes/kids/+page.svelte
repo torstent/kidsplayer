@@ -56,11 +56,34 @@ async function initializePlayer() {
     return;
   }
 
+  // Suppress the Spotify Web SDK console errors
+  const originalConsoleError = console.error;
+  window.originalConsoleError = originalConsoleError; // Store for cleanup
+  console.error = function(...args) {
+    // Filter out known Spotify SDK errors
+    if (args[0] && typeof args[0] === 'string') {
+      if (args[0].includes('The message port closed before a response was received') || 
+          args[0].includes('cpapi.spotify.com') ||
+          args[0].includes('item_before_load') ||
+          args[0].includes('robustness level')) {
+        return; // Suppress these errors
+      }
+    }
+    originalConsoleError.apply(console, args);
+  };
+
   // Load Spotify Web Playback SDK if not already loaded
   if (!window.Spotify) {
     const script = document.createElement('script');
     script.src = 'https://sdk.scdn.co/spotify-player.js';
     script.async = true;
+    
+    // Add error handler for the script
+    script.onerror = () => {
+      toast.push("Error loading Spotify Player SDK");
+      console.error("Failed to load Spotify Web Playback SDK");
+    };
+    
     document.head.appendChild(script);
     
     await new Promise((resolve) => {
@@ -68,72 +91,109 @@ async function initializePlayer() {
     });
   }
 
-  player = new Spotify.Player({
-    name: 'CleanPlayer Kids',
-    getOAuthToken: async cb => {
-      const token = await getAccessToken();
-      cb(token);
-    },
-    volume: 0.5
-  });
+  // Create player with error handling
+  try {
+    player = new Spotify.Player({
+      name: 'CleanPlayer Kids',
+      getOAuthToken: async cb => {
+        try {
+          const token = await getAccessToken();
+          cb(token);
+        } catch (error) {
+          console.error("Error getting OAuth token:", error);
+          toast.push("Error authenticating with Spotify");
+        }
+      },
+      volume: 0.5
+    });
 
-  // Ready
-  player.addListener('ready', ({ device_id }) => {
-    console.log('Kids player ready with device ID:', device_id);
-    deviceId = device_id;
-    isPlayerReady = true;
-    toast.push("Player ready! You can now play albums.");
-  });
+    // Add error listener
+    player.addListener('initialization_error', ({ message }) => {
+      console.error('Initialization error:', message);
+      toast.push("Player initialization error");
+    });
 
-  // Not Ready
-  player.addListener('not_ready', ({ device_id }) => {
-    console.log('Kids player not ready with device ID:', device_id);
-    isPlayerReady = false;
-  });
+    player.addListener('authentication_error', ({ message }) => {
+      console.error('Authentication error:', message);
+      toast.push("Spotify authentication error");
+    });
 
-  // Player state changed
-  player.addListener('player_state_changed', (state) => {
-    if (!state) {
-      isPlaying = false;
-      currentTrack = null;
-      currentAlbumId = null;
-      shuffleState = false;
-      return;
-    }
-    
-    isPlaying = !state.paused;
-    currentTrack = state.track_window.current_track;
-    shuffleState = state.shuffle;
-    
-    // Determine which album is currently playing
-    if (currentTrack && currentTrack.album) {
-      const newAlbumId = currentTrack.album.uri.split(':')[2]; // Extract album ID from URI
+    player.addListener('account_error', ({ message }) => {
+      console.error('Account error:', message);
+      toast.push("Spotify Premium required");
+    });
+
+    player.addListener('playback_error', ({ message }) => {
+      console.error('Playback error:', message);
+      toast.push("Playback error occurred");
+    });
+
+    // Ready
+    player.addListener('ready', ({ device_id }) => {
+      console.log('Kids player ready with device ID:', device_id);
+      deviceId = device_id;
+      isPlayerReady = true;
+      toast.push("Player ready! You can now play albums.");
+    });
+
+    // Not Ready
+    player.addListener('not_ready', ({ device_id }) => {
+      console.log('Kids player not ready with device ID:', device_id);
+      isPlayerReady = false;
+    });
+
+    // Player state changed
+    player.addListener('player_state_changed', (state) => {
+      if (!state) {
+        isPlaying = false;
+        currentTrack = null;
+        currentAlbumId = null;
+        shuffleState = false;
+        return;
+      }
       
-      // If album changed, update the track list
-      if (currentAlbumId !== newAlbumId) {
-        currentAlbumId = newAlbumId;
-        albumTracks = []; // Clear the current album tracks
+      isPlaying = !state.paused;
+      currentTrack = state.track_window.current_track;
+      shuffleState = state.shuffle;
+      
+      // Determine which album is currently playing
+      if (currentTrack && currentTrack.album) {
+        const newAlbumId = currentTrack.album.uri.split(':')[2]; // Extract album ID from URI
         
-        // If track list is visible, load the new album tracks
-        if (showTrackList) {
-          loadAlbumTracks(currentAlbumId);
+        // If album changed, update the track list
+        if (currentAlbumId !== newAlbumId) {
+          currentAlbumId = newAlbumId;
+          albumTracks = []; // Clear the current album tracks
+          
+          // If track list is visible, load the new album tracks
+          if (showTrackList) {
+            loadAlbumTracks(currentAlbumId);
+          }
         }
       }
-    }
-    
-    console.log('Player state changed:', { 
-      isPlaying, 
-      currentTrack: currentTrack?.name, 
-      currentAlbumId, 
-      shuffleState 
+      
+      console.log('Player state changed:', { 
+        isPlaying, 
+        currentTrack: currentTrack?.name, 
+        currentAlbumId, 
+        shuffleState 
+      });
     });
-  });
 
-  // Connect to the player
-  const success = await player.connect();
-  if (!success) {
-    console.error('Failed to connect to Spotify player');
-    toast.push("Failed to connect to Spotify player");
+    // Connect to the player with error handling
+    try {
+      const success = await player.connect();
+      if (!success) {
+        console.error('Failed to connect to Spotify player');
+        toast.push("Failed to connect to Spotify player");
+      }
+    } catch (error) {
+      console.error('Error connecting to Spotify player:', error);
+      toast.push("Error connecting to Spotify player");
+    }
+  } catch (error) {
+    console.error('Error creating Spotify player:', error);
+    toast.push("Could not initialize Spotify player");
   }
 }
 
@@ -395,21 +455,10 @@ onDestroy(() => {
   if (player) {
     player.disconnect();
   }
-});
-
-// Lade Cover beim Mount und initialisiere Player
-onMount(async () => {
-  if (browser) {
-    // Add Material Icons if not already present
-    if (!document.querySelector('link[href*="Material+Symbols+Rounded"]')) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = 'https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300,0,0';
-      document.head.appendChild(link);
-    }
-    
-    covers = await Promise.all(albums.map(a => getAlbumCover(a.id)));
-    await initializePlayer();
+  
+  // Restore the original console.error function
+  if (browser && typeof window !== 'undefined' && window.originalConsoleError) {
+    console.error = window.originalConsoleError;
   }
 });
 
