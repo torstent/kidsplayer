@@ -92,10 +92,6 @@
             repeat = 0;
         }
     }
-    async function handleTest() {
-        SpotifyPlayerApi.startPawPatrol();
-    
-    }
 
     setInterval(updatePosition, 1000); // this is probably bad? I don't actually know but this could pose potential performance issues
     function updatePosition() {
@@ -425,12 +421,6 @@
         >
             <span class="material-symbols-rounded"> skip_next </span>
         </button>
-
-        <button class="play" on:click={handleTest}>
-                console.log("handle test");
-                <span class="material-symbols-rounded"> pause_circle </span>
-
-        </button>
     </div>
 </div>
 
@@ -555,7 +545,7 @@
     .albumArt {
         height: 60vh;
         /* left: calc(50% - 30vh);
-        position: fixed; */ /* chuj go wie */
+        position: fixed; */
     }
     .albumInfo {
         margin-left: 32vh;
