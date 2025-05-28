@@ -3,6 +3,7 @@ import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { toast } from "@zerodevx/svelte-toast";
 import { SvelteToast } from "@zerodevx/svelte-toast";
+import { SpotifyPlayerApi } from "$lib/spotifyUtils";
 
 // Make sure we have the Material Icons available
 import { onDestroy } from "svelte";
@@ -193,25 +194,9 @@ async function toggleShuffle() {
   }
 }
 
-// Toggle play/pause state
-async function togglePlayPause() {
-  try {
-    if (!isPlayerReady) {
-      toast.push("Player not ready. Please wait a moment and try again.");
-      return;
-    }
-
-    if (isPlaying) {
-      await player.pause();
-      toast.push("Paused");
-    } else {
-      await player.resume();
-      toast.push("Resumed playback");
-    }
-  } catch (error) {
-    console.error("Error toggling play/pause:", error);
-    toast.push("Error controlling playback");
-  }
+// Handle play/pause toggle with imported function
+async function handlePlayPause() {
+  await SpotifyPlayerApi.togglePlayPause(player, isPlaying);
 }
 
 // Skip backward 30 seconds
@@ -307,6 +292,194 @@ async function skipForward() {
     toast.push("Error controlling playback");
   }
 }
+
+// Toggle track list visibility and load album tracks if necessary
+async function toggleTrackList() {
+  try {
+    showTrackList = !showTrackList;
+    
+    // If we're showing the track list and we don't have tracks loaded yet, fetch them
+    if (showTrackList && albumTracks.length === 0 && currentAlbumId) {
+      await loadAlbumTracks(currentAlbumId);
+    }
+  } catch (error) {
+    console.error("Error toggling track list:", error);
+    toast.push("Error loading tracks");
+  }
+}
+
+// Load all tracks for the current album
+async function loadAlbumTracks(albumId) {
+  try {
+    const { getAccessToken } = await import("$lib/spotifyUtils/auth.js");
+    const token = await getAccessToken();
+    
+    const response = await fetch(`https://api.spotify.com/v1/albums/${albumId}/tracks`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      albumTracks = data.items;
+      console.log('Album tracks loaded:', albumTracks);
+    } else {
+      console.error("Failed to load album tracks:", response.status, await response.text());
+      toast.push("Failed to load album tracks");
+    }
+  } catch (error) {
+    console.error("Error loading album tracks:", error);
+    toast.push("Error loading album tracks");
+  }
+}
+
+// Play a specific track
+async function playTrack(trackUri) {
+  try {
+    if (!isPlayerReady) {
+      toast.push("Player not ready. Please wait a moment and try again.");
+      return;
+    }
+
+    const { getAccessToken } = await import("$lib/spotifyUtils/auth.js");
+    const token = await getAccessToken();
+
+    // Play the selected track
+    const playResponse = await fetch("https://api.spotify.com/v1/me/player/play", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ 
+        uris: [trackUri],
+        device_id: deviceId
+      })
+    });
+
+    if (playResponse.ok) {
+      toast.push("Playing selected track");
+    } else {
+      console.error("Play track failed:", playResponse.status, await playResponse.text());
+      toast.push("Failed to play selected track");
+    }
+  } catch (error) {
+    console.error("Error playing track:", error);
+    toast.push("Error controlling playback");
+  }
+}
+
+// Toggle play/pause or start album playback
+async function toggleAlbum(albumId) {
+  try {
+    if (!deviceId || !isPlayerReady) {
+      toast.push("Player not ready. Please wait a moment and try again.");
+      return;
+    }
+
+    // If this album is currently playing, toggle pause/play
+    if (currentAlbumId === albumId && isPlaying) {
+      await player.pause();
+      toast.push("Paused");
+      return;
+    }
+    
+    // If this album is paused, resume it
+    if (currentAlbumId === albumId && !isPlaying) {
+      await player.resume();
+      toast.push("Resumed playback");
+      return;
+    }
+
+    // Otherwise, start playing the new album
+    const { getAccessToken } = await import("$lib/spotifyUtils/auth.js");
+    const token = await getAccessToken();
+
+    // First, transfer playback to this device
+    const transferResponse = await fetch("https://api.spotify.com/v1/me/player", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        device_ids: [deviceId],
+        play: false
+      })
+    });
+
+    if (!transferResponse.ok) {
+      console.error("Transfer failed:", transferResponse.status, await transferResponse.text());
+      toast.push("Failed to transfer playback to this device");
+      return;
+    }
+
+    // Wait a moment for the transfer to complete
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Ensure shuffle is disabled for kids albums (play in order)
+    if (shuffleState) {
+      const shuffleResponse = await fetch("https://api.spotify.com/v1/me/player/shuffle?state=false", {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      
+      if (shuffleResponse.ok) {
+        console.log("Shuffle disabled for kids album");
+        toast.push("Playing album in order (shuffle disabled)");
+      }
+    }
+
+    // Now play the album
+    const playResponse = await fetch("https://api.spotify.com/v1/me/player/play", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ 
+        context_uri: `spotify:album:${albumId}`,
+        device_id: deviceId
+      })
+    });
+
+    if (playResponse.ok) {
+      toast.push("Starting album playback!");
+    } else {
+      console.error("Play failed:", playResponse.status, await playResponse.text());
+      toast.push("Failed to start playback. Make sure you have Spotify Premium.");
+    }
+  } catch (error) {
+    console.error("Error toggling album:", error);
+    toast.push("Error controlling playback");
+  }
+}
+
+// Lade Cover beim Mount und initialisiere Player
+onMount(async () => {
+  if (browser) {
+    // Add Material Icons if not already present
+    if (!document.querySelector('link[href*="Material+Symbols+Rounded"]')) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300,0,0';
+      document.head.appendChild(link);
+    }
+    
+    covers = await Promise.all(albums.map(a => getAlbumCover(a.id)));
+    await initializePlayer();
+  }
+});
+
+// Cleanup when component is destroyed
+onDestroy(() => {
+  if (player) {
+    player.disconnect();
+  }
+});
 
 // Toggle track list visibility and load album tracks if necessary
 async function toggleTrackList() {
@@ -756,7 +929,7 @@ onDestroy(() => {
       
       <button 
         class="control-button play-button" 
-        on:click={togglePlayPause}
+        on:click={handlePlayPause}
         disabled={!isPlayerReady}
         title={isPlaying ? "Pause" : "Play"}
       >

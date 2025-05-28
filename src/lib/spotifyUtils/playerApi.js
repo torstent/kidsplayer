@@ -23,6 +23,27 @@ export async function setShuffle(option, device_id) {
   })
 }
 
+// Toggle play/pause state
+export async function togglePlayPause(player, isPlaying) {
+  try {
+    if (!player) {
+      toast.push("Player not ready. Please wait a moment and try again.");
+      return;
+    }
+
+    if (isPlaying) {
+      await player.pause();
+      toast.push("Paused");
+    } else {
+      await player.resume();
+      toast.push("Resumed playback");
+    }
+  } catch (error) {
+    console.error("Error toggling play/pause:", error);
+    toast.push("Error controlling playback");
+  }
+}
+
 export async function startPawPatrol() {
     const accessToken = await SpotifyAuth.getAccessToken();
     await fetch(`https://api.spotify.com/v1/me/player/play`, {
