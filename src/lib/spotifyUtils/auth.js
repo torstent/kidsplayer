@@ -56,7 +56,7 @@ export async function redirectToAuthCodeFlow(clientId) {
 
     localStorage.setItem("verifier", verifier)
 
-    const redirectUri = "http://localhost:5173/test/" // Use registered redirect URI
+    const redirectUri = "http://localhost:5173/" // Use registered redirect URI
     const params = new URLSearchParams()
     params.append("client_id", clientId)
     params.append("response_type", "code")
@@ -77,7 +77,7 @@ export async function newAccessToken(clientId, code) {
     
     const verifier = localStorage.getItem("verifier")
 
-    const redirectUri = "http://localhost:5173/test/" // Must match the one used in redirectToAuthCodeFlow
+    const redirectUri = "http://localhost:5173/" // Must match the one used in redirectToAuthCodeFlow
     const params = new URLSearchParams()
     params.append("client_id", clientId)
     params.append("grant_type", "authorization_code")

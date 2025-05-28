@@ -24,14 +24,7 @@
 
     let showOptions = false;
     let showAttributionMenu = false
-    let authState;
-    if (browser && localStorage.getItem("accessToken")) {
-        console.log("Found access token in localStorage, setting authState to waiting");
-        authState = "waiting";
-    } else {
-        console.log("No access token found, setting authState to bad");
-        authState = "bad";
-    }
+    let authState = "bad"; // Default to bad, will be updated in onMount
     let lastState = {}
     let title = ""; 
     let artist = ""; 
@@ -172,6 +165,13 @@
         console.log("Component mounted, browser:", browser);
         
         if (browser) {
+            // First check if we have stored tokens
+            const hasAccessToken = localStorage.getItem("accessToken");
+            const hasRefreshToken = localStorage.getItem("refreshToken");
+            
+            console.log("Has access token:", !!hasAccessToken);
+            console.log("Has refresh token:", !!hasRefreshToken);
+            
             // Check for authorization code in URL
             const authCode = new URLSearchParams(window.location.search).get("code");
             
@@ -197,10 +197,31 @@
                     console.error("Error processing authorization code:", error);
                     authState = "bad";
                 }
+            } else if (hasAccessToken && hasRefreshToken) {
+                // No auth code, but we have stored tokens - validate them
+                console.log("No auth code, but found stored tokens. Validating...");
+                try {
+                    const token = await getAccessToken();
+                    if (token) {
+                        authState = "waiting";
+                        console.log("Stored tokens are valid, authState set to waiting");
+                    } else {
+                        authState = "bad";
+                        console.log("Stored tokens are invalid, authState set to bad");
+                    }
+                } catch (error) {
+                    console.error("Error validating stored tokens:", error);
+                    authState = "bad";
+                }
+            } else {
+                // No auth code and no stored tokens
+                console.log("No auth code and no stored tokens, authState set to bad");
+                authState = "bad";
             }
         }
     });
 
+    // Define Spotify SDK callback immediately when browser is available
     if (browser) {
         window.onSpotifyWebPlaybackSDKReady = async function () {
             console.log("sdk ready");
@@ -255,7 +276,7 @@
 
             console.log(player);
 
-        };
+            };
         }
     }
 
