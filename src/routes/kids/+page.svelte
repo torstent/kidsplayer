@@ -574,10 +574,6 @@ onDestroy(() => {
   cursor: not-allowed;
 }
 
-.player-controls {
-  text-align: center;
-  margin: 1rem 0;
-}
 
 .controls-row {
   display: flex;
@@ -604,10 +600,6 @@ onDestroy(() => {
 .control-button:hover {
   background: #555;
   transform: scale(1.05);
-}
-
-.control-button.active {
-  background: #1db954;
 }
 
 .control-button:disabled {
@@ -713,10 +705,10 @@ onDestroy(() => {
 </div>
 
 {#if isPlayerReady && currentTrack}
-  <div class="player-controls">
+  <div class="shuffle-control">
     <div class="controls-row">
       <button 
-        class="control-button" 
+        class="shuffle-button" 
         class:active={shuffleState}
         on:click={toggleShuffle}
         disabled={!isPlayerReady}
