@@ -17,6 +17,7 @@ export default defineConfig({
     baseURL: 'http://localhost:5173',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    video: process.env.CI ? 'retain-on-failure' : 'off',
     navigationTimeout: 20000, // Increase navigation timeout
     actionTimeout: 10000, // Increase action timeout
   },
