@@ -674,6 +674,13 @@ onDestroy(() => {
   margin: 0.25rem 0;
   cursor: pointer;
   transition: background-color 0.2s;
+  /* Reset button styles */
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  width: 100%;
 }
 
 .track-item:hover {
@@ -779,17 +786,18 @@ onDestroy(() => {
       </div>
       <div class="track-list">
         {#each albumTracks as track, index}
-          <div 
+          <button 
             class="track-item" 
             class:current={currentTrack && currentTrack.id === track.id}
             on:click={() => playTrack(track.uri)}
+            aria-label="Play {track.name}"
           >
             <span class="track-number">{index + 1}</span>
             <span class="track-name">{track.name}</span>
             {#if currentTrack && currentTrack.id === track.id}
               <span class="material-symbols-rounded">volume_up</span>
             {/if}
-          </div>
+          </button>
         {/each}
       </div>
     </div>
