@@ -10,6 +10,8 @@ export async function setRepeat(option, device_id) {
       })
 }
 
+//https://open.spotify.com/intl-de/album/0QVzh4hji8pcUFT7FWBlGf?si=AlK0NDRpQRiLZyeTTLBUkw
+
 export async function setShuffle(option, device_id) {
   await fetch(`https://api.spotify.com/v1/me/player/shuffle?state=${option}&device_id=${device_id}`, {
       method: "PUT",
@@ -17,6 +19,24 @@ export async function setShuffle(option, device_id) {
   }).then(() => {
     return true
   })
+}
+
+export async function startPawPatrol() {
+    await fetch(`https://api.spotify.com/v1/me/player/play`, {
+        method: "PUT",
+        headers: {
+            Authorization: `Bearer ${SpotifyAuth.getAccessToken()}`,
+            "Content-Type": "application/json" // Specify the content type as JSON
+        },
+        body: JSON.stringify({
+            "context_uri": "spotify:album:0QVzh4hji8pcUFT7FWBlGf",
+            "offset": {
+                "position": 3
+            },
+        })
+    }).then(() => {
+        return true;
+    });
 }
 
 export async function getQueue() {

@@ -1,6 +1,14 @@
 <script>
     import SongListItem from "./SongListItem.svelte";
     import { queue } from "$lib/spotifyUtils/player";
+    import { getQueue } from "$lib/spotifyUtils/playerApi";
+
+    async function loadQueue() {
+        const test = await getQueue();
+        console.log("test", test);
+    }
+    loadQueue();
+
     let q = []
     queue.subscribe(value => {
         q = value

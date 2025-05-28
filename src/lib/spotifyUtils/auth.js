@@ -1,6 +1,9 @@
 import { toast } from "@zerodevx/svelte-toast";
+import { browser } from "$app/environment";
 
-export function getAccessToken(clientId) {
+export async function getAccessToken(clientId) {
+    if (!browser) return false;
+    
     if(localStorage.getItem('accessToken') == undefined || localStorage.getItem('refreshToken') == undefined) {
         return false
     }
@@ -8,58 +11,81 @@ export function getAccessToken(clientId) {
     let tokenGenerationTime = localStorage.getItem('tokenGenerationTime')
     let currentTime = Date.now()
     if ((currentTime - tokenGenerationTime) > expiryTime * 1000) {
+        console.log("Token expired, refreshing...");
         let body = new URLSearchParams()
         body.append("grant_type", "refresh_token")
         body.append("refresh_token", localStorage.getItem('refreshToken'))
-        body.append("client_id", "0833c365ed2e41cdaf8119cfe3f34ff9") //TODO: hardcoded client id
+        body.append("client_id", "8f9b61a91f38474d80dbf57d9d857408") //TODO: hardcoded client id
 
-        fetch(`https://accounts.spotify.com/api/token`, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: body
-        }).then(response => {
+        try {
+            const response = await fetch(`https://accounts.spotify.com/api/token`, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: body
+            });
+            
             if (!response.ok) {
                 toast.push('Error refreshing token');
+                return false;
             }
-            return response.json();
-        }).then (data => {
+            
+            const data = await response.json();
             localStorage.setItem('expiryTime', data.expires_in)
             localStorage.setItem("tokenGenerationTime", Date.now())
             localStorage.setItem('accessToken', data.access_token);
-            localStorage.setItem('refreshToken', data.refresh_token);
+            if (data.refresh_token) {
+                localStorage.setItem('refreshToken', data.refresh_token);
+            }
             toast.push("Regenerated access token")
-        })
+            return localStorage.getItem('accessToken');
+        } catch (error) {
+            console.error("Error refreshing token:", error);
+            toast.push('Error refreshing token');
+            return false;
+        }
     }
     return localStorage.getItem('accessToken')
     
 }
 
 export async function redirectToAuthCodeFlow(clientId) {
+    if (!browser) return;
+    
     const verifier = generateCodeVerifier(128)
     const challenge = await generateCodeChallenge(verifier)
 
     localStorage.setItem("verifier", verifier)
 
+    const redirectUri = "http://localhost:5173/test/" // Use registered redirect URI
     const params = new URLSearchParams()
     params.append("client_id", clientId)
     params.append("response_type", "code")
-    params.append("redirect_uri", window.location.href.split(/[?#]/)[0])
+    params.append("redirect_uri", redirectUri)
     params.append("scope", "user-read-playback-state user-modify-playback-state user-read-currently-playing streaming playlist-read-private playlist-read-collaborative user-library-modify user-library-read user-follow-read user-read-private user-read-email")
     params.append("code_challenge_method", "S256")
     params.append("code_challenge", challenge)
+    
+    console.log("Redirect URI:", redirectUri)
     console.log(`https://accounts.spotify.com/authorize?${params.toString()}`)
-    document.location = `https://accounts.spotify.com/authorize?${params.toString()}`
+    if (typeof window !== 'undefined') {
+        document.location = `https://accounts.spotify.com/authorize?${params.toString()}`
+    }
 }
 
 export async function newAccessToken(clientId, code) {
+    if (!browser) return;
+    
     const verifier = localStorage.getItem("verifier")
 
+    const redirectUri = "http://localhost:5173/test/" // Must match the one used in redirectToAuthCodeFlow
     const params = new URLSearchParams()
     params.append("client_id", clientId)
     params.append("grant_type", "authorization_code")
     params.append("code", code)
-    params.append("redirect_uri", window.location.href.split(/[?#]/)[0])
+    params.append("redirect_uri", redirectUri)
     params.append("code_verifier", verifier)
+
+    console.log("Token exchange redirect URI:", redirectUri)
 
     const result = await fetch("https://accounts.spotify.com/api/token", {
         method: "POST",
@@ -88,6 +114,8 @@ export async function newAccessToken(clientId, code) {
 }
 
 export function logOut() {
+    if (!browser) return;
+    
     localStorage.removeItem('accessToken')
     localStorage.removeItem('refreshToken')
     localStorage.removeItem('expiryTime')
@@ -95,7 +123,9 @@ export function logOut() {
     localStorage.removeItem('verifier')
     toast.push('Logged out!')
     setTimeout(() => {
-        window.location.reload();
+        if (typeof window !== 'undefined') {
+            window.location.reload();
+        }
     }, 1000);
 }
 
@@ -111,6 +141,8 @@ function generateCodeVerifier(length) {
 }
 
 async function generateCodeChallenge(codeVerifier) {
+    if (!browser || typeof window === 'undefined') return '';
+    
     const data = new TextEncoder().encode(codeVerifier)
     const digest = await window.crypto.subtle.digest("SHA-256", data)
     return btoa(String.fromCharCode.apply(null, [...new Uint8Array(digest)]))

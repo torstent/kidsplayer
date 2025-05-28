@@ -19,8 +19,9 @@ function getUserAgent() {
 export async function createPlayer() {
     player = new Spotify.Player({
         name: `cleanplayer (${getUserAgent()}) `,
-        getOAuthToken: (cb) => {
-            cb(getAccessToken());
+        getOAuthToken: async (cb) => {
+            const token = await getAccessToken();
+            cb(token);
         },
         volume: get(settings).volume,
     });

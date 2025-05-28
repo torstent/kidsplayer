@@ -10,11 +10,14 @@
     import { findLargestImageIndex } from "$lib/commonUtils";
 
     import { player, createPlayer, deviceId } from "$lib/spotifyUtils/player.js";
+    import { getQueue } from "$lib/spotifyUtils/playerApi";
 
     import { SvelteToast } from "@zerodevx/svelte-toast";
     import { toast } from "@zerodevx/svelte-toast";
     import EntranceWindow from "$lib/components/EntranceWindow.svelte";
     import { getAccessToken } from "$lib/spotifyUtils/auth";
+    import { browser } from "$app/environment";
+    import { onMount } from "svelte";
 
     import SpotifyLogo from '$lib/assets/Spotify.png'
     import SpotifyBlackLogo from '$lib/assets/SpotifyBlack.png'
@@ -22,9 +25,11 @@
     let showOptions = false;
     let showAttributionMenu = false
     let authState;
-    if (localStorage.getItem("accessToken")) {
+    if (browser && localStorage.getItem("accessToken")) {
+        console.log("Found access token in localStorage, setting authState to waiting");
         authState = "waiting";
     } else {
+        console.log("No access token found, setting authState to bad");
         authState = "bad";
     }
     let lastState = {}
@@ -71,7 +76,7 @@
             player.resume().then(() => {
                 playing = true;
             });
-        }
+        }   
     }
     async function handleShuffle() {
         if (shuffle == true) {
@@ -94,6 +99,10 @@
             repeat = 0;
         }
     }
+    async function handleTest() {
+        SpotifyPlayerApi.startPawPatrol();
+    
+    }
 
     setInterval(updatePosition, 1000); // this is probably bad? I don't actually know but this could pose potential performance issues
     function updatePosition() {
@@ -104,16 +113,29 @@
     }
 
     function updatePlayerState(state) {
+        console.log("updatePlayerState called with:", state);
+        if (!state || !state.track_window || !state.track_window.current_track) {
+            console.log("No current track in state");
+            return;
+        }
+        
         lastState = state
         title = state.track_window.current_track.name;
         artist = state.track_window.current_track.artists.map( a => a.name).join(", ");
         // TODO: this transition is quite frankly jarring, find a better way to smoothly transition in album art and background
-        artwork =
-            state.track_window.current_track.album.images[
+        
+        console.log("Album images:", state.track_window.current_track.album.images);
+        if (state.track_window.current_track.album.images && state.track_window.current_track.album.images.length > 0) {
+            artwork = state.track_window.current_track.album.images[
                 findLargestImageIndex(
                     state.track_window.current_track.album.images
                 )
             ].url;
+            console.log("Artwork URL set to:", artwork);
+        } else {
+            console.log("No album images available");
+            artwork = "";
+        }
         albumTitle = state.track_window.current_track.album.name;
         albumLink = `https://open.spotify.com/album/${state.track_window.current_track.album.uri.slice(14)}`; 
         context = "";
@@ -146,75 +168,97 @@
         console.log(state);
     }
 
-    window.onSpotifyWebPlaybackSDKReady = async function () {
-        console.log("sdk ready");
-        // auth to spotify
-        const authCode = new URLSearchParams(window.location.search).get(
-            "code"
-        );
-        if (authCode) {
-            await SpotifyAuth.newAccessToken(
-                "0833c365ed2e41cdaf8119cfe3f34ff9",
-                authCode
-            );
-            window.history.replaceState(
-                {},
-                document.title,
-                window.location.origin + window.location.pathname
-            );
-            authState = "waiting";
-        }
-        let res = getAccessToken()
-        if(res == false || res == undefined) {
-            authState = "bad"
-        } else {
-            createPlayer();
+    onMount(async () => {
+        console.log("Component mounted, browser:", browser);
         
-
-        player.addListener("ready", ({ device_id }) => {
-            console.log("Ready with Device ID", device_id);
-            toast.push(`Ready with Device ID ${device_id}`);
-            authState = "good";
-        });
-
-        player.addListener("not_ready", ({ device_id }) => {
-            console.log("Device ID has gone offline", device_id);
-            toast.push(`Device ID has gone offline ${device_id}`);
-        });
-
-        player.addListener("initialization_error", ({ message }) => {
-            console.error(message);
-            toast.push(`Spotify initialization error: ${message}`);
-        });
-
-        player.addListener("authentication_error", ({ message }) => {
-            console.error(message);
-            toast.push(`Spotify authentication error: ${message}`);
-            authState = "bad";
-        });
-
-        player.addListener("account_error", ({ message }) => {
-            console.error(message);
-            toast.push(`Spotify account error: ${message}`);
-            authState = "bad";
-        });
-
-        player.connect().then((success) => {
-            if (success) {
-                console.log(
-                    "The Web Playback SDK successfully connected to Spotify!"
-                );
-                toast.push("Successfully connected to Spotify");
+        if (browser) {
+            // Check for authorization code in URL
+            const authCode = new URLSearchParams(window.location.search).get("code");
+            
+            if (authCode) {
+                console.log("Found authorization code, exchanging for access token...");
+                try {
+                    await SpotifyAuth.newAccessToken(
+                        "8f9b61a91f38474d80dbf57d9d857408", // TODO: hardcoded client id
+                        authCode
+                    );
+                    
+                    // Clear the code from URL
+                    window.history.replaceState(
+                        {},
+                        document.title,
+                        window.location.origin + window.location.pathname
+                    );
+                    
+                    // Update auth state
+                    authState = "waiting";
+                    console.log("Authorization code processed, authState set to waiting");
+                } catch (error) {
+                    console.error("Error processing authorization code:", error);
+                    authState = "bad";
+                }
             }
-        });
+        }
+    });
 
-        player.addListener("player_state_changed", (state) => {
-            updatePlayerState(state);
-        });
+    if (browser) {
+        window.onSpotifyWebPlaybackSDKReady = async function () {
+            console.log("sdk ready");
+            
+            let res = await getAccessToken()
+            if(res == false || res == undefined) {
+                authState = "bad"
+            } else {
+                createPlayer();
+            
 
-        console.log(player);
+            player.addListener("ready", ({ device_id }) => {
+                console.log("Ready with Device ID", device_id);
+                toast.push(`Ready with Device ID ${device_id}`);
+                authState = "good";
+            });
+
+            player.addListener("not_ready", ({ device_id }) => {
+                console.log("Device ID has gone offline", device_id);
+                toast.push(`Device ID has gone offline ${device_id}`);
+            });
+
+            player.addListener("initialization_error", ({ message }) => {
+                console.error(message);
+                toast.push(`Spotify initialization error: ${message}`);
+            });
+
+            player.addListener("authentication_error", ({ message }) => {
+                console.error(message);
+                toast.push(`Spotify authentication error: ${message}`);
+                authState = "bad";
+            });
+
+            player.addListener("account_error", ({ message }) => {
+                console.error(message);
+                toast.push(`Spotify account error: ${message}`);
+                authState = "bad";
+            });
+
+            player.connect().then((success) => {
+                if (success) {
+                    console.log(
+                        "The Web Playback SDK successfully connected to Spotify!"
+                    );
+                    toast.push("Successfully connected to Spotify");
+                }
+            });
+
+            player.addListener("player_state_changed", (state) => {
+                updatePlayerState(state);
+            });
+
+            console.log(player);
+
+        };
+        }
     }
-    };
+
 </script>
 
 {#if authState == "bad" || authState == "waiting"}
@@ -309,7 +353,7 @@
     </div>
     <div class="albumContainer">
         <img
-            src={artwork}
+            src={artwork || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="%23333"/><text x="150" y="150" text-anchor="middle" fill="%23666" font-size="24">No Image</text></svg>'}
             alt=""
             class="albumArt"
             style="border-radius: {albumArtRadius}"
@@ -363,8 +407,19 @@
         >
             <span class="material-symbols-rounded"> skip_next </span>
         </button>
+
+        <button class="play" on:click={handleTest}>
+                console.log("handle test");
+                <span class="material-symbols-rounded"> pause_circle </span>
+
+        </button>
     </div>
 </div>
+
+
+<br><br>
+
+
 
 <style>
     .background {

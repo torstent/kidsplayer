@@ -5,7 +5,7 @@
     import { SpotifyAuth } from "$lib/spotifyUtils";
     import SpotifyLogo from '$lib/assets/Spotify.png'
     function login() {
-        SpotifyAuth.redirectToAuthCodeFlow("0833c365ed2e41cdaf8119cfe3f34ff9"); //FIXME: hardcoded client id
+        SpotifyAuth.redirectToAuthCodeFlow("8f9b61a91f38474d80dbf57d9d857408"); //FIXME: hardcoded client id
     } 
     
 </script>
