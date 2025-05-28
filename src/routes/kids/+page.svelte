@@ -3,6 +3,10 @@ import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { toast } from "@zerodevx/svelte-toast";
 import { SvelteToast } from "@zerodevx/svelte-toast";
+import { SpotifyPlayerApi } from "$lib/spotifyUtils";
+
+// Make sure we have the Material Icons available
+import { onDestroy } from "svelte";
 
 // Zwei Spotify-Alben mit Cover und Startfunktion
 const albums = [
@@ -24,6 +28,8 @@ let isPlaying = false;
 let currentTrack = null;
 let currentAlbumId = null;
 let shuffleState = false;
+let showTrackList = false;
+let albumTracks = [];
 
 // Holt das Albumcover von der Spotify API
 async function getAlbumCover(albumId) {
@@ -50,11 +56,34 @@ async function initializePlayer() {
     return;
   }
 
+  // Suppress the Spotify Web SDK console errors
+  const originalConsoleError = console.error;
+  window.originalConsoleError = originalConsoleError; // Store for cleanup
+  console.error = function(...args) {
+    // Filter out known Spotify SDK errors
+    if (args[0] && typeof args[0] === 'string') {
+      if (args[0].includes('The message port closed before a response was received') || 
+          args[0].includes('cpapi.spotify.com') ||
+          args[0].includes('item_before_load') ||
+          args[0].includes('robustness level')) {
+        return; // Suppress these errors
+      }
+    }
+    originalConsoleError.apply(console, args);
+  };
+
   // Load Spotify Web Playback SDK if not already loaded
   if (!window.Spotify) {
     const script = document.createElement('script');
     script.src = 'https://sdk.scdn.co/spotify-player.js';
     script.async = true;
+    
+    // Add error handler for the script
+    script.onerror = () => {
+      toast.push("Error loading Spotify Player SDK");
+      console.error("Failed to load Spotify Web Playback SDK");
+    };
+    
     document.head.appendChild(script);
     
     await new Promise((resolve) => {
@@ -62,61 +91,109 @@ async function initializePlayer() {
     });
   }
 
-  player = new Spotify.Player({
-    name: 'CleanPlayer Kids',
-    getOAuthToken: async cb => {
-      const token = await getAccessToken();
-      cb(token);
-    },
-    volume: 0.5
-  });
-
-  // Ready
-  player.addListener('ready', ({ device_id }) => {
-    console.log('Kids player ready with device ID:', device_id);
-    deviceId = device_id;
-    isPlayerReady = true;
-    toast.push("Player ready! You can now play albums.");
-  });
-
-  // Not Ready
-  player.addListener('not_ready', ({ device_id }) => {
-    console.log('Kids player not ready with device ID:', device_id);
-    isPlayerReady = false;
-  });
-
-  // Player state changed
-  player.addListener('player_state_changed', (state) => {
-    if (!state) {
-      isPlaying = false;
-      currentTrack = null;
-      currentAlbumId = null;
-      shuffleState = false;
-      return;
-    }
-    
-    isPlaying = !state.paused;
-    currentTrack = state.track_window.current_track;
-    shuffleState = state.shuffle;
-    
-    // Determine which album is currently playing
-    if (currentTrack && currentTrack.album) {
-      currentAlbumId = currentTrack.album.uri.split(':')[2]; // Extract album ID from URI
-    }
-    
-    console.log('Player state changed:', { 
-      isPlaying, 
-      currentTrack: currentTrack?.name, 
-      currentAlbumId, 
-      shuffleState 
+  // Create player with error handling
+  try {
+    player = new Spotify.Player({
+      name: 'CleanPlayer Kids',
+      getOAuthToken: async cb => {
+        try {
+          const token = await getAccessToken();
+          cb(token);
+        } catch (error) {
+          console.error("Error getting OAuth token:", error);
+          toast.push("Error authenticating with Spotify");
+        }
+      },
+      volume: 0.5
     });
-  });
 
-  // Connect to the player
-  const success = await player.connect();
-  if (!success) {
-    console.error('Failed to connect to Spotify player');
-    toast.push("Failed to connect to Spotify player");
+    // Add error listener
+    player.addListener('initialization_error', ({ message }) => {
+      console.error('Initialization error:', message);
+      toast.push("Player initialization error");
+    });
+
+    player.addListener('authentication_error', ({ message }) => {
+      console.error('Authentication error:', message);
+      toast.push("Spotify authentication error");
+    });
+
+    player.addListener('account_error', ({ message }) => {
+      console.error('Account error:', message);
+      toast.push("Spotify Premium required");
+    });
+
+    player.addListener('playback_error', ({ message }) => {
+      console.error('Playback error:', message);
+      toast.push("Playback error occurred");
+    });
+
+    // Ready
+    player.addListener('ready', ({ device_id }) => {
+      console.log('Kids player ready with device ID:', device_id);
+      deviceId = device_id;
+      isPlayerReady = true;
+      toast.push("Player ready! You can now play albums.");
+    });
+
+    // Not Ready
+    player.addListener('not_ready', ({ device_id }) => {
+      console.log('Kids player not ready with device ID:', device_id);
+      isPlayerReady = false;
+    });
+
+    // Player state changed
+    player.addListener('player_state_changed', (state) => {
+      if (!state) {
+        isPlaying = false;
+        currentTrack = null;
+        currentAlbumId = null;
+        shuffleState = false;
+        return;
+      }
+      
+      isPlaying = !state.paused;
+      currentTrack = state.track_window.current_track;
+      shuffleState = state.shuffle;
+      
+      // Determine which album is currently playing
+      if (currentTrack && currentTrack.album) {
+        const newAlbumId = currentTrack.album.uri.split(':')[2]; // Extract album ID from URI
+        
+        // If album changed, update the track list
+        if (currentAlbumId !== newAlbumId) {
+          currentAlbumId = newAlbumId;
+          albumTracks = []; // Clear the current album tracks
+          
+          // If track list is visible, load the new album tracks
+          if (showTrackList) {
+            loadAlbumTracks(currentAlbumId);
+          }
+        }
+      }
+      
+      console.log('Player state changed:', { 
+        isPlaying, 
+        currentTrack: currentTrack?.name, 
+        currentAlbumId, 
+        shuffleState 
+      });
+    });
+
+    // Connect to the player with error handling
+    try {
+      const success = await player.connect();
+      if (!success) {
+        console.error('Failed to connect to Spotify player');
+        toast.push("Failed to connect to Spotify player");
+      }
+    } catch (error) {
+      console.error('Error connecting to Spotify player:', error);
+      toast.push("Error connecting to Spotify player");
+    }
+  } catch (error) {
+    console.error('Error creating Spotify player:', error);
+    toast.push("Could not initialize Spotify player");
   }
 }
 
@@ -174,6 +251,98 @@ async function toggleShuffle() {
   } catch (error) {
     console.error("Error toggling shuffle:", error);
     toast.push("Error controlling shuffle");
+  }
+}
+
+// Handle play/pause toggle with imported function
+async function handlePlayPause() {
+  await SpotifyPlayerApi.togglePlayPause(player, isPlaying);
+}
+
+// Skip backward 30 seconds
+async function handleSkipBackward() {
+  await SpotifyPlayerApi.skipBackward(player);
+}
+
+// Skip forward 30 seconds
+async function handleSkipForward() {
+  await SpotifyPlayerApi.skipForward(player);
+}
+
+// Toggle track list visibility and load album tracks if necessary
+async function toggleTrackList() {
+  try {
+    showTrackList = !showTrackList;
+    
+    // If we're showing the track list and we don't have tracks loaded yet, fetch them
+    if (showTrackList && albumTracks.length === 0 && currentAlbumId) {
+      albumTracks = await SpotifyPlayerApi.loadAlbumTracks(currentAlbumId);
+    }
+  } catch (error) {
+    console.error("Error toggling track list:", error);
+    toast.push("Error loading tracks");
+  }
+}
+
+// Load all tracks for the current album
+async function loadAlbumTracks(albumId) {
+  try {
+    const { getAccessToken } = await import("$lib/spotifyUtils/auth.js");
+    const token = await getAccessToken();
+    
+    const response = await fetch(`https://api.spotify.com/v1/albums/${albumId}/tracks`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      albumTracks = data.items;
+      console.log('Album tracks loaded:', albumTracks);
+    } else {
+      console.error("Failed to load album tracks:", response.status, await response.text());
+      toast.push("Failed to load album tracks");
+    }
+  } catch (error) {
+    console.error("Error loading album tracks:", error);
+    toast.push("Error loading album tracks");
+  }
+}
+
+// Play a specific track
+async function playTrack(trackUri) {
+  try {
+    if (!isPlayerReady) {
+      toast.push("Player not ready. Please wait a moment and try again.");
+      return;
+    }
+
+    const { getAccessToken } = await import("$lib/spotifyUtils/auth.js");
+    const token = await getAccessToken();
+
+    // Play the selected track
+    const playResponse = await fetch("https://api.spotify.com/v1/me/player/play", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ 
+        uris: [trackUri],
+        device_id: deviceId
+      })
+    });
+
+    if (playResponse.ok) {
+      toast.push("Playing selected track");
+    } else {
+      console.error("Play track failed:", playResponse.status, await playResponse.text());
+      toast.push("Failed to play selected track");
+    }
+  } catch (error) {
+    console.error("Error playing track:", error);
+    toast.push("Error controlling playback");
   }
 }
 
@@ -268,8 +437,35 @@ async function toggleAlbum(albumId) {
 // Lade Cover beim Mount und initialisiere Player
 onMount(async () => {
   if (browser) {
+    // Add Material Icons if not already present
+    if (!document.querySelector('link[href*="Material+Symbols+Rounded"]')) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300,0,0';
+      document.head.appendChild(link);
+    }
+    
     covers = await Promise.all(albums.map(a => getAlbumCover(a.id)));
     await initializePlayer();
+  }
+});
+
+// Cleanup when component is destroyed
+onDestroy(() => {
+  if (player) {
+    player.disconnect();
+  }
+  
+  // Restore the original console.error function
+  if (browser && typeof window !== 'undefined' && window.originalConsoleError) {
+    console.error = window.originalConsoleError;
+  }
+});
+
+// Cleanup when component is destroyed
+onDestroy(() => {
+  if (player) {
+    player.disconnect();
   }
 });
 </script>
@@ -377,6 +573,135 @@ onMount(async () => {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.player-controls {
+  text-align: center;
+  margin: 1rem 0;
+}
+
+.controls-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.control-button {
+  background: #333;
+  color: #fff;
+  border: none;
+  padding: 0.5rem;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.3s, transform 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.control-button:hover {
+  background: #555;
+  transform: scale(1.05);
+}
+
+.control-button.active {
+  background: #1db954;
+}
+
+.control-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.play-button {
+  width: 3.5rem;
+  height: 3.5rem;
+}
+
+.play-button span {
+  font-size: 2rem;
+}
+
+.track-list-container {
+  background: #222;
+  border-radius: 1rem;
+  margin: 1rem auto;
+  max-width: 90%;
+  max-height: 50vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 24px #0008;
+}
+
+.track-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #444;
+}
+
+.track-list-header h3 {
+  margin: 0;
+  color: #fff;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  color: #aaa;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-button:hover {
+  color: #fff;
+}
+
+.track-list {
+  padding: 0.5rem;
+}
+
+.track-item {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  margin: 0.25rem 0;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  /* Reset button styles */
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+}
+
+.track-item:hover {
+  background-color: #333;
+}
+
+.track-item.current {
+  background-color: #1db954;
+  color: #fff;
+}
+
+.track-number {
+  width: 2rem;
+  text-align: right;
+  margin-right: 1rem;
+  opacity: 0.7;
+}
+
+.track-name {
+  flex: 1;
+}
 </style>
 
 <div class="status" class:ready={isPlayerReady} class:loading={!isPlayerReady}>
@@ -388,15 +713,59 @@ onMount(async () => {
 </div>
 
 {#if isPlayerReady && currentTrack}
-  <div class="shuffle-control">
-    <button 
-      class="shuffle-button" 
-      class:active={shuffleState}
-      on:click={toggleShuffle}
-      disabled={!isPlayerReady}
-    >
-      🔀 Shuffle: {shuffleState ? 'ON' : 'OFF'}
-    </button>
+  <div class="player-controls">
+    <div class="controls-row">
+      <button 
+        class="control-button" 
+        class:active={shuffleState}
+        on:click={toggleShuffle}
+        disabled={!isPlayerReady}
+        title="Toggle shuffle"
+      >
+        <span class="material-symbols-rounded">shuffle</span>
+      </button>
+      
+      <button
+        class="control-button"
+        on:click={handleSkipBackward}
+        disabled={!isPlayerReady}
+        title="Skip backward 30 seconds"
+      >
+        <span class="material-symbols-rounded">replay_30</span>
+      </button>
+      
+      <button 
+        class="control-button play-button" 
+        on:click={handlePlayPause}
+        disabled={!isPlayerReady}
+        title={isPlaying ? "Pause" : "Play"}
+      >
+        {#if isPlaying}
+          <span class="material-symbols-rounded">pause_circle</span>
+        {:else}
+          <span class="material-symbols-rounded">play_circle</span>
+        {/if}
+      </button>
+      
+      <button
+        class="control-button"
+        on:click={handleSkipForward}
+        disabled={!isPlayerReady}
+        title="Skip forward 30 seconds"
+      >
+        <span class="material-symbols-rounded">forward_30</span>
+      </button>
+      
+      <button
+        class="control-button"
+        on:click={toggleTrackList}
+        disabled={!isPlayerReady || !currentAlbumId}
+        title="Show all tracks"
+      >
+        <span class="material-symbols-rounded">queue_music</span>
+      </button>
+    </div>
+    
     <div style="font-size: 0.9rem; color: #aaa; margin-top: 0.5rem;">
       Current: {currentTrack?.name || 'No track'} 
       {#if shuffleState}
@@ -406,6 +775,33 @@ onMount(async () => {
       {/if}
     </div>
   </div>
+  
+  {#if showTrackList && albumTracks.length > 0}
+    <div class="track-list-container">
+      <div class="track-list-header">
+        <h3>Tracks in Album</h3>
+        <button class="close-button" on:click={toggleTrackList}>
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      </div>
+      <div class="track-list">
+        {#each albumTracks as track, index}
+          <button 
+            class="track-item" 
+            class:current={currentTrack && currentTrack.id === track.id}
+            on:click={() => playTrack(track.uri)}
+            aria-label="Play {track.name}"
+          >
+            <span class="track-number">{index + 1}</span>
+            <span class="track-name">{track.name}</span>
+            {#if currentTrack && currentTrack.id === track.id}
+              <span class="material-symbols-rounded">volume_up</span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
 {/if}
 
 <div class="album-row">

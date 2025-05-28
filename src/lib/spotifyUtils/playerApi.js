@@ -23,6 +23,145 @@ export async function setShuffle(option, device_id) {
   })
 }
 
+// Toggle play/pause state
+export async function togglePlayPause(player, isPlaying) {
+  try {
+    if (!player) {
+      toast.push("Player not ready. Please wait a moment and try again.");
+      return;
+    }
+
+    if (isPlaying) {
+      await player.pause();
+      toast.push("Paused");
+    } else {
+      await player.resume();
+      toast.push("Resumed playback");
+    }
+  } catch (error) {
+    console.error("Error toggling play/pause:", error);
+    toast.push("Error controlling playback");
+  }
+}
+
+// Skip backward 30 seconds
+export async function skipBackward(player) {
+  try {
+    if (!player) {
+      toast.push("Player not ready or no track playing");
+      return;
+    }
+
+    const accessToken = await SpotifyAuth.getAccessToken();
+    
+    // Get current playback state to find position
+    const response = await fetch("https://api.spotify.com/v1/me/player", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      
+      // Calculate new position (30 seconds back, minimum 0)
+      const newPosition = Math.max(0, data.progress_ms - 30000);
+      
+      // Seek to new position
+      const seekResponse = await fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${newPosition}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+      
+      if (seekResponse.ok) {
+        toast.push("Skipped backward 30 seconds");
+      } else {
+        console.error("Seek failed:", seekResponse.status, await seekResponse.text());
+        toast.push("Failed to seek backward");
+      }
+    } else {
+      toast.push("Could not get current playback state");
+    }
+  } catch (error) {
+    console.error("Error skipping backward:", error);
+    toast.push("Error controlling playback");
+  }
+}
+
+// Skip forward 30 seconds
+export async function skipForward(player) {
+  try {
+    if (!player) {
+      toast.push("Player not ready or no track playing");
+      return;
+    }
+
+    const accessToken = await SpotifyAuth.getAccessToken();
+    
+    // Get current playback state to find position
+    const response = await fetch("https://api.spotify.com/v1/me/player", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      
+      // Calculate new position (30 seconds forward)
+      const newPosition = data.progress_ms + 30000;
+      
+      // Seek to new position
+      const seekResponse = await fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${newPosition}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+      
+      if (seekResponse.ok) {
+        toast.push("Skipped forward 30 seconds");
+      } else {
+        console.error("Seek failed:", seekResponse.status, await seekResponse.text());
+        toast.push("Failed to seek forward");
+      }
+    } else {
+      toast.push("Could not get current playback state");
+    }
+  } catch (error) {
+    console.error("Error skipping forward:", error);
+    toast.push("Error controlling playback");
+  }
+}
+
+// Load album tracks
+export async function loadAlbumTracks(albumId) {
+  try {
+    const accessToken = await SpotifyAuth.getAccessToken();
+    
+    const response = await fetch(`https://api.spotify.com/v1/albums/${albumId}/tracks`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      return data.items;
+    } else {
+      console.error("Failed to load album tracks:", response.status, await response.text());
+      toast.push("Failed to load album tracks");
+      return [];
+    }
+  } catch (error) {
+    console.error("Error loading album tracks:", error);
+    toast.push("Error loading album tracks");
+    return [];
+  }
+}
+
 export async function startPawPatrol() {
     const accessToken = await SpotifyAuth.getAccessToken();
     await fetch(`https://api.spotify.com/v1/me/player/play`, {
