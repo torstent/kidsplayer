@@ -33,26 +33,26 @@ async function getCurrentSpotifyUserId(accessToken) {
 export async function getAccessToken(clientId) {
     if (!browser) return false;
     
-    // First, try to get tokens from localStorage as fallback/bridge
-    let spotifyUserId = null;
-    let accessToken = null;
-    let refreshToken = null;
-    let expiryTime = null;
-    let tokenGenerationTime = null;
+    // Get current user ID from localStorage or cache
+    let spotifyUserId = currentSpotifyUserId || localStorage.getItem('spotifyUserId');
     
-    // Check localStorage first for backward compatibility
+    // Check localStorage first for backward compatibility and migration
     const localAccessToken = localStorage.getItem('accessToken');
     const localRefreshToken = localStorage.getItem('refreshToken');
     
-    if (localAccessToken && localRefreshToken) {
-        // We have localStorage tokens, let's migrate them to Supabase
-        console.log("Found localStorage tokens, attempting to migrate to Supabase...");
+    if (localAccessToken && localRefreshToken && !spotifyUserId) {
+        // We have localStorage tokens but no user ID, let's get it and migrate
+        console.log("Found localStorage tokens without user ID, attempting to migrate to Supabase...");
         
         try {
-            // Get user ID from Spotify
+            // Get user ID from Spotify using the local token
             spotifyUserId = await getCurrentSpotifyUserId(localAccessToken);
             
             if (spotifyUserId) {
+                // Store user ID for future use
+                localStorage.setItem('spotifyUserId', spotifyUserId);
+                currentSpotifyUserId = spotifyUserId;
+                
                 // Save to Supabase
                 await saveUserTokens(
                     spotifyUserId,
@@ -64,7 +64,7 @@ export async function getAccessToken(clientId) {
                 console.log("Successfully migrated tokens to Supabase");
                 toast.push("Migrated authentication to database");
                 
-                // Clear localStorage
+                // Clear localStorage tokens but keep user ID
                 localStorage.removeItem('accessToken');
                 localStorage.removeItem('refreshToken');
                 localStorage.removeItem('expiryTime');
@@ -72,66 +72,97 @@ export async function getAccessToken(clientId) {
             }
         } catch (error) {
             console.error("Error migrating tokens to Supabase:", error);
-            // Fall back to localStorage if migration fails
-            accessToken = localAccessToken;
-            refreshToken = localRefreshToken;
-            expiryTime = localStorage.getItem('expiryTime');
-            tokenGenerationTime = localStorage.getItem('tokenGenerationTime');
+            // Fall back to localStorage tokens
+            console.log("Falling back to localStorage tokens");
+            return checkLocalStorageTokens();
+        }
+    } else if (localAccessToken && localRefreshToken && spotifyUserId) {
+        // We have both localStorage tokens and user ID, migrate and use Supabase
+        console.log("Migrating existing tokens to Supabase...");
+        try {
+            await saveUserTokens(
+                spotifyUserId,
+                localAccessToken,
+                localRefreshToken,
+                parseInt(localStorage.getItem('expiryTime') || '3600')
+            );
+            
+            // Clear localStorage tokens but keep user ID
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('expiryTime');
+            localStorage.removeItem('tokenGenerationTime');
+            
+            console.log("Migration completed");
+            toast.push("Migrated authentication to database");
+        } catch (error) {
+            console.error("Error migrating tokens:", error);
+            // Continue with localStorage for now
+            return checkLocalStorageTokens();
         }
     }
     
-    // If we didn't get tokens from migration, try to get from Supabase
-    if (!accessToken || !refreshToken) {
-        // We need a user ID to fetch from Supabase
-        // Try to get it from a temporary access token or ask user to log in again
-        if (!spotifyUserId) {
-            console.log("No user ID available, user needs to log in");
+    // If we don't have a user ID, user needs to log in
+    if (!spotifyUserId) {
+        console.log("No user ID available, user needs to log in");
+        return false;
+    }
+    
+    // Cache the user ID
+    currentSpotifyUserId = spotifyUserId;
+    
+    // Get tokens from Supabase
+    try {
+        const tokenData = await getUserTokens(spotifyUserId);
+        if (!tokenData) {
+            console.log("No tokens found in Supabase for user:", spotifyUserId);
             return false;
         }
         
-        try {
-            const tokenData = await getUserTokens(spotifyUserId);
-            if (!tokenData) {
-                console.log("No tokens found in Supabase for user:", spotifyUserId);
+        // Check if token is expired
+        if (areTokensExpired(tokenData.token_generated_at, tokenData.expires_in)) {
+            console.log("Token expired, refreshing...");
+            
+            try {
+                const newTokens = await refreshAccessToken(tokenData.refresh_token, spotifyUserId);
+                if (newTokens) {
+                    return newTokens.access_token;
+                } else {
+                    return false;
+                }
+            } catch (error) {
+                console.error("Error refreshing token:", error);
+                toast.push('Error refreshing token - please log in again');
                 return false;
             }
-            
-            accessToken = tokenData.access_token;
-            refreshToken = tokenData.refresh_token;
-            expiryTime = tokenData.expires_in;
-            tokenGenerationTime = tokenData.token_generated_at;
-            
-        } catch (error) {
-            console.error("Error fetching tokens from Supabase:", error);
-            return false;
         }
+        
+        return tokenData.access_token;
+        
+    } catch (error) {
+        console.error("Error fetching tokens from Supabase:", error);
+        return false;
     }
+}
+
+/**
+ * Check localStorage tokens (fallback method)
+ */
+function checkLocalStorageTokens() {
+    const accessToken = localStorage.getItem('accessToken');
+    const refreshToken = localStorage.getItem('refreshToken');
+    const expiryTime = localStorage.getItem('expiryTime');
+    const tokenGenerationTime = localStorage.getItem('tokenGenerationTime');
     
     if (!accessToken || !refreshToken) {
-        console.log("No tokens available");
         return false;
     }
     
     // Check if token is expired
-    const isExpired = tokenGenerationTime ? 
-        areTokensExpired(tokenGenerationTime, expiryTime) :
-        (Date.now() - parseInt(tokenGenerationTime || '0')) > parseInt(expiryTime || '3600') * 1000;
-    
-    if (isExpired) {
-        console.log("Token expired, refreshing...");
-        
-        try {
-            const newTokens = await refreshAccessToken(refreshToken, spotifyUserId);
-            if (newTokens) {
-                return newTokens.access_token;
-            } else {
-                return false;
-            }
-        } catch (error) {
-            console.error("Error refreshing token:", error);
-            toast.push('Error refreshing token');
-            return false;
-        }
+    const currentTime = Date.now();
+    if ((currentTime - parseInt(tokenGenerationTime || '0')) > parseInt(expiryTime || '3600') * 1000) {
+        console.log("localStorage token expired, user needs to log in again");
+        return false;
     }
     
     return accessToken;
@@ -257,7 +288,8 @@ export async function newAccessToken(clientId, code) {
             data.expires_in
         );
         
-        // Cache user ID
+        // Cache user ID in localStorage and memory
+        localStorage.setItem('spotifyUserId', spotifyUserId);
         currentSpotifyUserId = spotifyUserId;
         
         // Clear verifier
@@ -279,12 +311,13 @@ export function logOut() {
     // Clear cached user ID
     currentSpotifyUserId = null;
     
-    // Clear localStorage tokens (for migration compatibility)
+    // Clear localStorage tokens and user ID
     localStorage.removeItem('accessToken')
     localStorage.removeItem('refreshToken')
     localStorage.removeItem('expiryTime')
     localStorage.removeItem('tokenGenerationTime')
     localStorage.removeItem('verifier')
+    localStorage.removeItem('spotifyUserId')
     
     // Note: We don't delete from Supabase here as the user might want to log back in
     // If they want to completely remove their data, they should use the user management page
