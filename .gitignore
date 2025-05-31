@@ -15,3 +15,11 @@ vite.config.ts.timestamp-*
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+
+# Netlify build cache
+/.netlify
+
+# Playwright test results
+/playwright-report/
+/test-results/
