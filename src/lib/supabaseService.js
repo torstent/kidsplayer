@@ -21,7 +21,13 @@ export async function testConnection() {
   
   try {
     const { data, error } = await supabase.from('albums').select('count', { count: 'exact', head: true });
-    if (error) throw error;
+    if (error) {
+      // Check if it's a table not found error
+      if (error.message.includes('relation "public.albums" does not exist')) {
+        throw new Error('Albums table not found. Please run the SQL script from supabase-schema.sql in your Supabase dashboard first.');
+      }
+      throw error;
+    }
     console.log('✅ Supabase connection successful');
     return true;
   } catch (error) {
@@ -44,7 +50,13 @@ export async function getAlbums() {
       .select('id, title, image_url')
       .order('id');
     
-    if (error) throw error;
+    if (error) {
+      // Check if it's a table not found error
+      if (error.message.includes('relation "public.albums" does not exist')) {
+        throw new Error('Albums table not found. Please run the SQL script from supabase-schema.sql in your Supabase dashboard first.');
+      }
+      throw error;
+    }
     
     return data || [];
   } catch (error) {
