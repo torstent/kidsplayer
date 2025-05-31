@@ -35,27 +35,65 @@
     
     isLoading = true;
     try {
-      // For now, let's manually seed with known data to avoid Spotify API dependency
-      const albumsToInsert = [
-        {
-          id: "1Sd7bF2ZKQW6H0yJRRLxnk",
-          title: "Album 1", // We'll update this with real titles later
-          imageUrl: "https://i.scdn.co/image/placeholder"
-        },
-        {
-          id: "3gpbouGEBPdEmAuvZObheF",
-          title: "Album 2",
-          imageUrl: "https://i.scdn.co/image/placeholder"
-        }
+      console.log('🔄 Starting Supabase album seeding...');
+      
+      // Check if we have a token  
+      const { getAccessToken } = await import("$lib/spotifyUtils/auth.js");
+      const token = await getAccessToken();
+      
+      if (!token) {
+        toast.push('Please login to Spotify first');
+        return;
+      }
+      
+      const albumIds = [
+        "1Sd7bF2ZKQW6H0yJRRLxnk",
+        "3gpbouGEBPdEmAuvZObheF"
       ];
       
+      console.log('📀 Fetching album details from Spotify...');
+      const albumsToInsert = [];
+      
+      for (const albumId of albumIds) {
+        try {
+          const response = await fetch(`https://api.spotify.com/v1/albums/${albumId}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          
+          if (response.ok) {
+            const albumData = await response.json();
+            const album = {
+              id: albumId,
+              title: albumData.name,
+              imageUrl: albumData.images[0]?.url
+            };
+            albumsToInsert.push(album);
+            console.log(`✅ Fetched: ${album.title}`);
+          } else {
+            console.error(`❌ Failed to fetch album ${albumId}:`, response.status);
+          }
+        } catch (error) {
+          console.error(`❌ Error fetching album ${albumId}:`, error);
+        }
+      }
+      
+      if (albumsToInsert.length === 0) {
+        toast.push('Failed to fetch album data from Spotify');
+        return;
+      }
+      
+      console.log('💾 Inserting albums into Supabase...');
+      
       for (const album of albumsToInsert) {
-        await insertAlbum(album);
-        console.log(`Inserted album: ${album.title}`);
+        try {
+          await insertAlbum(album);
+          console.log(`✅ Inserted: ${album.title}`);
+        } catch (error) {
+          console.warn(`⚠️  Could not insert ${album.title}:`, error.message);
+        }
       }
       
       toast.push('Database seeded successfully!');
-      // Refresh albums list
       albums = await getAlbums();
       
     } catch (error) {
