@@ -22,6 +22,7 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@supabase/supabase-js": "^2.49.8",
 		"svelte-persisted-store": "^0.12.0",
 		"ua-parser-js": "^2.0.0-alpha.1"
 	}
