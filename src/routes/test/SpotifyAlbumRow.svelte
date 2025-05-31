@@ -1,18 +1,15 @@
 <script>
-// Zwei Spotify-Alben mit Cover und Startfunktion
-const albums = [
-  {
-    id: "1Sd7bF2ZKQW6H0yJRRLxnk",
-    url: "https://open.spotify.com/intl-de/album/1Sd7bF2ZKQW6H0yJRRLxnk?si=TXFxuQpsTwSYGdj71uTHng"
-  },
-  {
-    id: "3gpbouGEBPdEmAuvZObheF",
-    url: "https://open.spotify.com/intl-de/album/3gpbouGEBPdEmAuvZObheF?si=SJuj8pLrRUWIEtxPcOJQ4Q"
-  }
-];
+// Albums loaded from Supabase
+let albums = [];
 
-// Holt das Albumcover von der Spotify API
-async function getAlbumCover(albumId) {
+// Holt das Albumcover von der Spotify API oder nutzt gespeicherte URL
+async function getAlbumCover(albumId, album = null) {
+  // If we have a stored image URL, use it
+  if (album && album.imageUrl) {
+    return album.imageUrl;
+  }
+  
+  // Otherwise fetch from Spotify API
   const token = await import("$lib/spotifyUtils/auth.js").then(m => m.getAccessToken());
   const res = await fetch(`https://api.spotify.com/v1/albums/${albumId}`, {
     headers: { Authorization: `Bearer ${token}` }
@@ -23,12 +20,21 @@ async function getAlbumCover(albumId) {
   return data.images[0]?.url;
 }
 
-let covers = [null, null];
+let covers = [];
 
 // Lade Cover beim Mount
 import { onMount } from "svelte";
 onMount(async () => {
-  covers = await Promise.all(albums.map(a => getAlbumCover(a.id)));
+  // Load albums from Supabase
+  try {
+    const { loadAlbums } = await import("$lib/albumUtils.js");
+    albums = await loadAlbums();
+    console.log('Loaded albums for test:', albums);
+  } catch (error) {
+    console.error('Failed to load albums:', error);
+  }
+  
+  covers = await Promise.all(albums.map(a => getAlbumCover(a.id, a)));
 });
 
 // Starte Albumwiedergabe

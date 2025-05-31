@@ -8,19 +8,10 @@ import { SpotifyPlayerApi } from "$lib/spotifyUtils";
 // Make sure we have the Material Icons available
 import { onDestroy } from "svelte";
 
-// Zwei Spotify-Alben mit Cover und Startfunktion
-const albums = [
-  {
-    id: "1Sd7bF2ZKQW6H0yJRRLxnk",
-    url: "https://open.spotify.com/intl-de/album/1Sd7bF2ZKQW6H0yJRRLxnk?si=TXFxuQpsTwSYGdj71uTHng"
-  },
-  {
-    id: "3gpbouGEBPdEmAuvZObheF",
-    url: "https://open.spotify.com/intl-de/album/3gpbouGEBPdEmAuvZObheF?si=SJuj8pLrRUWIEtxPcOJQ4Q"
-  }
-];
+// Albums loaded from Supabase
+let albums = [];
 
-let covers = [null, null];
+let covers = [];
 let player = null;
 let deviceId = null;
 let isPlayerReady = false;
@@ -31,8 +22,14 @@ let shuffleState = false;
 let showTrackList = false;
 let albumTracks = [];
 
-// Holt das Albumcover von der Spotify API
-async function getAlbumCover(albumId) {
+// Holt das Albumcover von der Spotify API oder nutzt gespeicherte URL
+async function getAlbumCover(albumId, album = null) {
+  // If we have a stored image URL, use it
+  if (album && album.imageUrl) {
+    return album.imageUrl;
+  }
+  
+  // Otherwise fetch from Spotify API
   const { getAccessToken } = await import("$lib/spotifyUtils/auth.js");
   const token = await getAccessToken();
   const res = await fetch(`https://api.spotify.com/v1/albums/${albumId}`, {
@@ -445,7 +442,18 @@ onMount(async () => {
       document.head.appendChild(link);
     }
     
-    covers = await Promise.all(albums.map(a => getAlbumCover(a.id)));
+    // Load albums from Supabase
+    try {
+      const { loadAlbums } = await import("$lib/albumUtils.js");
+      albums = await loadAlbums();
+      console.log('Loaded albums:', albums);
+    } catch (error) {
+      console.error('Failed to load albums:', error);
+      toast.push('Failed to load albums from database');
+    }
+    
+    // Load covers for albums
+    covers = await Promise.all(albums.map(a => getAlbumCover(a.id, a)));
     await initializePlayer();
   }
 });
