@@ -46,6 +46,9 @@
     if (!browser) return;
     
     isLoading = true;
+    let successCount = 0;
+    let errorCount = 0;
+    
     try {
       console.log('🔄 Starting Supabase album seeding...');
       
@@ -68,6 +71,7 @@
       
       for (const albumId of albumIds) {
         try {
+          console.log(`Fetching album ${albumId}...`);
           const response = await fetch(`https://api.spotify.com/v1/albums/${albumId}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
@@ -80,12 +84,14 @@
               imageUrl: albumData.images[0]?.url
             };
             albumsToInsert.push(album);
-            console.log(`✅ Fetched: ${album.title}`);
+            console.log(`✅ Fetched: ${album.title} (${album.id})`);
           } else {
-            console.error(`❌ Failed to fetch album ${albumId}:`, response.status);
+            console.error(`❌ Failed to fetch album ${albumId}:`, response.status, response.statusText);
+            errorCount++;
           }
         } catch (error) {
           console.error(`❌ Error fetching album ${albumId}:`, error);
+          errorCount++;
         }
       }
       
@@ -94,19 +100,45 @@
         return;
       }
       
-      console.log('💾 Inserting albums into Supabase...');
+      console.log(`💾 Inserting ${albumsToInsert.length} albums into Supabase...`);
       
       for (const album of albumsToInsert) {
         try {
-          await insertAlbum(album);
-          console.log(`✅ Inserted: ${album.title}`);
+          console.log(`Inserting album: ${album.title} (${album.id})`);
+          const result = await insertAlbum(album);
+          console.log(`✅ Inserted: ${album.title}`, result);
+          successCount++;
         } catch (error) {
-          console.warn(`⚠️  Could not insert ${album.title}:`, error.message);
+          console.error(`❌ Could not insert ${album.title}:`, error);
+          if (error.message.includes('duplicate key')) {
+            console.log(`Album ${album.title} already exists in database`);
+            successCount++; // Count as success since album is already there
+          } else {
+            errorCount++;
+          }
         }
       }
       
-      toast.push('Database seeded successfully!');
+      // Refresh albums list
+      console.log('🔄 Refreshing albums list...');
       albums = await getAlbums();
+      console.log(`Found ${albums.length} albums in database after seeding:`, albums);
+      
+      // Update connection status to reflect current state
+      if (albums.length === 0) {
+        connectionStatus = '✅ Connection successful!\n\nSELECT * FROM albums:\nNo albums found in database.';
+      } else {
+        const albumList = albums.map(album => 
+          `• ${album.title} (ID: ${album.id})`
+        ).join('\n');
+        connectionStatus = `✅ Connection successful!\n\nSELECT * FROM albums:\nFound ${albums.length} album(s):\n${albumList}`;
+      }
+      
+      if (successCount > 0) {
+        toast.push(`Database seeded! ${successCount} albums processed, ${albums.length} total in database`);
+      } else {
+        toast.push(`Seeding completed with errors. ${errorCount} failures.`);
+      }
       
     } catch (error) {
       toast.push(`Seeding failed: ${error.message}`);
@@ -155,19 +187,35 @@
         imageUrl: albumData.images[0]?.url
       };
       
-      console.log(`✅ Fetched: ${album.title}`);
+      console.log(`✅ Fetched: ${album.title} (${album.id})`);
       console.log('💾 Inserting album into Supabase...');
       
-      await insertAlbum(album);
-      console.log(`✅ Inserted: ${album.title}`);
+      const result = await insertAlbum(album);
+      console.log(`✅ Inserted: ${album.title}`, result);
       
       toast.push(`Album "${album.title}" added successfully!`);
+      
+      // Refresh albums list and connection status
       albums = await getAlbums();
+      console.log(`Found ${albums.length} albums in database after adding:`, albums);
+      
+      // Update connection status to reflect current state
+      if (albums.length === 0) {
+        connectionStatus = '✅ Connection successful!\n\nSELECT * FROM albums:\nNo albums found in database.';
+      } else {
+        const albumList = albums.map(album => 
+          `• ${album.title} (ID: ${album.id})`
+        ).join('\n');
+        connectionStatus = `✅ Connection successful!\n\nSELECT * FROM albums:\nFound ${albums.length} album(s):\n${albumList}`;
+      }
+      
       newAlbumId = ''; // Clear the input
       
     } catch (error) {
       if (error.message.includes('duplicate key')) {
         toast.push('Album already exists in database');
+        // Still refresh to show current state
+        albums = await getAlbums();
       } else {
         toast.push(`Failed to add album: ${error.message}`);
       }

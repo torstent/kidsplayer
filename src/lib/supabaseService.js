@@ -45,12 +45,15 @@ export async function getAlbums() {
   }
   
   try {
+    console.log('Fetching albums from Supabase...');
+    
     const { data, error } = await supabase
       .from('albums')
       .select('id, title, image_url')
       .order('id');
     
     if (error) {
+      console.error('Supabase query error:', error);
       // Check if it's a table not found error
       if (error.message.includes('relation "public.albums" does not exist')) {
         throw new Error('Albums table not found. Please run the SQL script from supabase-schema.sql in your Supabase dashboard first.');
@@ -58,6 +61,7 @@ export async function getAlbums() {
       throw error;
     }
     
+    console.log('Fetched albums from Supabase:', data);
     return data || [];
   } catch (error) {
     console.error('Error fetching albums:', error);
@@ -74,6 +78,8 @@ export async function insertAlbum(album) {
   }
   
   try {
+    console.log('Inserting album into Supabase:', album);
+    
     const { data, error } = await supabase
       .from('albums')
       .insert({
@@ -83,8 +89,12 @@ export async function insertAlbum(album) {
       })
       .select();
     
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase insertion error:', error);
+      throw error;
+    }
     
+    console.log('Successfully inserted album:', data);
     return data[0];
   } catch (error) {
     console.error('Error inserting album:', error);
