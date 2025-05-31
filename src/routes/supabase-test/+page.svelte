@@ -16,12 +16,22 @@
     isLoading = true;
     try {
       await testConnection();
-      connectionStatus = '✅ Connection successful!';
-      toast.push('Supabase connection successful');
       
-      // Try to fetch albums
+      // Fetch albums to show as part of the test result
       albums = await getAlbums();
       console.log('Albums from database:', albums);
+      
+      // Show connection success with album count and details
+      if (albums.length === 0) {
+        connectionStatus = '✅ Connection successful!\n\nSELECT * FROM albums:\nNo albums found in database.';
+      } else {
+        const albumList = albums.map(album => 
+          `• ${album.title} (ID: ${album.id})`
+        ).join('\n');
+        connectionStatus = `✅ Connection successful!\n\nSELECT * FROM albums:\nFound ${albums.length} album(s):\n${albumList}`;
+      }
+      
+      toast.push('Supabase connection successful');
       
     } catch (error) {
       connectionStatus = `❌ Connection failed: ${error.message}`;
@@ -238,6 +248,12 @@
     font-size: 1.2rem;
     font-weight: bold;
     margin: 1rem 0;
+    white-space: pre-line;
+    font-family: monospace;
+    background: #f5f5f5;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid #ddd;
   }
   
   .status.loading {
